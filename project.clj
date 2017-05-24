@@ -26,7 +26,8 @@
              :1.5 {:dependencies [[org.clojure/clojure "1.5.1"]]}
              :1.7 {:dependencies [[org.clojure/clojure "1.7.0-alpha2"]]}}
   :aliases {"all" ["with-profile" "dev,1.5:dev:dev,1.7"]}
-  :plugins [[codox "0.6.4"]]
+  :plugins [[codox "0.6.4"]
+            [lein-voom "0.1.0-20140122_084541-g72df37a"]]
   :test-selectors {:default  #(not (:integration %))
                    :integration :integration
                    :all (constantly true)})

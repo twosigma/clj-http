@@ -12,6 +12,7 @@
                             HttpResponse Header HttpHost
                             HttpResponseInterceptor)
            (org.apache.http.auth UsernamePasswordCredentials AuthScope)
+           (org.apache.http.impl.auth SPNegoSchemeFactory)
            (org.apache.http.params CoreConnectionPNames)
            (org.apache.http.client HttpClient HttpRequestRetryHandler)
            (org.apache.http.client.methods HttpDelete
@@ -19,7 +20,7 @@
                                            HttpGet HttpHead HttpOptions
                                            HttpPatch HttpPost HttpPut
                                            HttpUriRequest)
-           (org.apache.http.client.params CookiePolicy ClientPNames)
+           (org.apache.http.client.params CookiePolicy ClientPNames AuthPolicy)
            (org.apache.http.conn ClientConnectionManager)
            (org.apache.http.conn.routing HttpRoute)
            (org.apache.http.conn.params ConnRoutePNames)
@@ -147,13 +148,18 @@
     (proxy [FilterInputStream]
         [^InputStream (.getContent http-entity)]
       (close []
-        (try
-          ;; Eliminate the reflection warning from proxy-super
-          (let [^InputStream this this]
-            (proxy-super close))
-          (finally
-            (when-not (conn/reusable? conn-mgr)
-              (.shutdown conn-mgr))))))))
+        (if (.isChunked http-entity)
+          ;; Immediately disconnect for chunked responses
+          (if (conn/reusable? conn-mgr)
+            (proxy-super close)
+            (.shutdown conn-mgr))
+          (try
+            ;; Eliminate the reflection warning from proxy-super
+            (let [^InputStream this this]
+              (proxy-super close))
+            (finally
+              (when-not (conn/reusable? conn-mgr)
+                (.shutdown conn-mgr)))))))))
 
 (defn- print-debug!
   "Print out debugging information to *out* for a given request."
@@ -211,8 +217,8 @@
   [{:keys [request-method scheme server-name server-port uri query-string
            headers body multipart socket-timeout conn-timeout proxy-host
            proxy-ignore-hosts proxy-port proxy-user proxy-pass as cookie-store
-           retry-handler response-interceptor digest-auth connection-manager
-           client-params]
+           retry-handler response-interceptor digest-auth spnego-auth connection-manager
+           client-params suppress-connection-close]
     :as req}]
   (let [^ClientConnectionManager conn-mgr
         (or connection-manager
@@ -242,11 +248,24 @@
        (.getCredentialsProvider http-client)
        (AuthScope. nil -1 nil)
        (UsernamePasswordCredentials. user pass)))
+    
     (when (and proxy-user proxy-pass)
       (let [authscope (AuthScope. proxy-host proxy-port)
             creds (UsernamePasswordCredentials. proxy-user proxy-pass)]
         (.setCredentials (.getCredentialsProvider http-client)
                          authscope creds)))
+
+    (when spnego-auth
+      (.register
+        (.getAuthSchemes http-client)
+        AuthPolicy/SPNEGO
+        (SPNegoSchemeFactory. true))
+
+      (.setCredentials
+        (.getCredentialsProvider http-client)
+        (AuthScope. nil -1 nil)
+        (UsernamePasswordCredentials. "u" "p")))
+
     (let [http-url (str scheme "://" server-name
                         (when server-port (str ":" server-port))
                         uri
@@ -267,7 +286,7 @@
          (proxy [HttpResponseInterceptor] []
            (process [resp ctx]
              (response-interceptor resp ctx)))))
-      (when-not (conn/reusable? conn-mgr)
+      (when-not (or suppress-connection-close (conn/reusable? conn-mgr))
         (.addHeader http-req "Connection" "close"))
       (doseq [[header-n header-v] headers]
         (if (coll? header-v)

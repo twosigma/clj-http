@@ -34,3 +34,5 @@ aws.clj
 docs/*
 doc
 http.log
+.idea
+*.iml
