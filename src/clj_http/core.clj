@@ -13,6 +13,7 @@
                             HttpResponseInterceptor)
            (org.apache.http.auth UsernamePasswordCredentials AuthScope
                                  NTCredentials)
+           (org.apache.http.impl.auth SPNegoSchemeFactory)
            (org.apache.http.params CoreConnectionPNames)
            (org.apache.http.client HttpClient HttpRequestRetryHandler)
            (org.apache.http.client.methods HttpDelete
@@ -20,7 +21,7 @@
                                            HttpGet HttpHead HttpOptions
                                            HttpPatch HttpPost HttpPut
                                            HttpUriRequest)
-           (org.apache.http.client.params CookiePolicy ClientPNames)
+           (org.apache.http.client.params CookiePolicy ClientPNames AuthPolicy)
            (org.apache.http.conn ClientConnectionManager)
            (org.apache.http.conn.routing HttpRoute)
            (org.apache.http.conn.params ConnRoutePNames)
@@ -215,7 +216,7 @@
            headers body multipart socket-timeout conn-timeout proxy-host
            proxy-ignore-hosts proxy-port proxy-user proxy-pass as cookie-store
            retry-handler response-interceptor digest-auth ntlm-auth
-           connection-manager client-params]
+           connection-manager client-params spnego-auth]
     :as req}]
   (let [^ClientConnectionManager conn-mgr
         (or connection-manager
@@ -250,6 +251,16 @@
        (.getCredentialsProvider http-client)
        (AuthScope. nil -1 nil)
        (NTCredentials. user password host domain)))
+
+    (when spnego-auth
+      (.register
+       (.getAuthSchemes http-client)
+       AuthPolicy/SPNEGO
+       (SPNegoSchemeFactory. true false))
+      (.setCredentials
+       (.getCredentialsProvider http-client)
+       (AuthScope. nil -1 nil)
+       (UsernamePasswordCredentials. "u" "p")))
 
     (when (and proxy-user proxy-pass)
       (let [authscope (AuthScope. proxy-host proxy-port)
