@@ -458,15 +458,20 @@
     (proxy [FilterInputStream]
         [^InputStream (.getContent http-entity)]
       (close []
-        (try
-          ;; Eliminate the reflection warning from proxy-super
-          (let [^InputStream this this]
-            (proxy-super close))
-          (finally
-            (when (instance? CloseableHttpResponse response)
-              (.close response))
-            (when-not (conn/reusable? conn-mgr)
-              (conn/shutdown-manager conn-mgr))))))
+        (if (.isChunked http-entity)
+          ;; Immediately disconnect for chunked responses
+          (if (conn/reusable? conn-mgr)
+            (proxy-super close)
+            (conn/shutdown-manager conn-mgr))
+          (try
+            ;; Eliminate the reflection warning from proxy-super
+            (let [^InputStream this this]
+              (proxy-super close))
+            (finally
+              (when (instance? CloseableHttpResponse response)
+                (.close response))
+              (when-not (conn/reusable? conn-mgr)
+                (conn/shutdown-manager conn-mgr)))))))
     (when-not (conn/reusable? conn-mgr)
       (conn/shutdown-manager conn-mgr))))
 
@@ -559,7 +564,8 @@
             request-method scheme server-name server-port socket-timeout
             uri response-interceptor proxy-host proxy-port
             http-client-context http-request-config http-client
-            proxy-ignore-hosts proxy-user proxy-pass digest-auth ntlm-auth]
+            proxy-ignore-hosts proxy-user proxy-pass digest-auth ntlm-auth
+            spnego-auth suppress-connection-close]
      :as req} respond raise]
    (let [async? (opt req :async)
          cache? (opt req :cache)
@@ -578,7 +584,7 @@
          (http-context cache? request-config http-client-context)
          ^HttpUriRequest http-req (http-request-for
                                    request-method http-url body)]
-     (when-not (conn/reusable? conn-mgr)
+     (when-not (or suppress-connection-close (conn/reusable? conn-mgr))
        (.addHeader http-req "Connection" "close"))
      (when-let [cookie-jar (or cookie-store *cookie-store*)]
        (.setCookieStore context cookie-jar))
@@ -601,6 +607,13 @@
           context
           (doto (credentials-provider)
             (.setCredentials authscope creds)))))
+     (when spnego-auth
+       (.setCredentialsProvider
+         context
+         (doto (credentials-provider)
+           (.setCredentials
+             (AuthScope. nil -1 nil)
+             (UsernamePasswordCredentials. "u" "p")))))
      (if multipart
        (.setEntity ^HttpEntityEnclosingRequest http-req
                    (mp/create-multipart-entity multipart req))

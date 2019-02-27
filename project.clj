@@ -1,6 +1,6 @@
-(defproject clj-http "3.9.1"
+(defproject twosigma/clj-http "3.9.1-ts2"
   :description "A Clojure HTTP library wrapping the Apache HttpComponents client."
-  :url "https://github.com/dakrone/clj-http/"
+  :url "https://github.com/twosigma/clj-http/"
   :license {:name "The MIT License"
             :url "http://opensource.org/licenses/mit-license.php"
             :distribution :repo}
